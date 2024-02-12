@@ -84,7 +84,7 @@ class Agent():
         self.learning_rate_a = 0.01 # alpha or learning rate
         self.discount_factor_g = 0.9 # gamma or discount factor.
         self.state_vector = []
-        self.max_score = 2000
+        self.max_score = 2211
         self.action_space = [0, 1, 2, 3]
         self.action_space_n = len(self.action_space)
         self.Q = None # Q-Table
