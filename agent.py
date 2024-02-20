@@ -32,18 +32,53 @@ class ReplayMemory(object):
 
         # Convertir chaque transition en une liste de tableaux NumPy 
         state_list, action_list, reward_list, next_state_list, terminated_list = zip(*transitions)
-        state_array = np.array(state_list)
-        action_array = np.array(action_list)
-        reward_array = np.array(reward_list)
-        next_state_array = np.array(next_state_list)
-        terminated_array = np.array(terminated_list)
+        
 
-        return state_array, action_array, reward_array, next_state_array, terminated_array
+        return state_list, action_list, reward_list, next_state_list, terminated_list
 
         
     def __len__(self):
         return len(self.memory)
+    
+class ForwardNetwork(nn.Module):
+    def __init__(self, state_size, hid_units=64, dropout_rate=0.1):
+        super(ForwardNetwork, self).__init__()
+        self.input_layer = nn.Linear(state_size, hid_units)
+        self.hid_layers = nn.ModuleList([nn.Linear(hid_units, hid_units) for _ in range(4)])
+        self.output_layer = nn.Linear(hid_units, 1)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
+    def forward(self, state):
+        """Forward pass through the network. Returns the predicted Q-values for each possible action."""
+        state = torch.stack(list(state), dim=0).to(torch.float32)
+        x = torch.relu(self.input_layer(state))
+
+        x = self.dropout(x)
+
+        for hid_layer in self.hid_layers:
+            x = torch.relu(hid_layer(x))
+            x = self.dropout(x)
+
+        q_values = self.output_layer(x)
+
+        return q_values
+
+    def target_net(self, next_state):
+        """Forward pass through the network. Returns the predicted Q-values for each possible action."""
+        next_state = torch.stack(list(next_state), dim=0).to(torch.float32)
+        x = torch.relu(self.input_layer(next_state))
+        
+        x = nn.Dropout(self.dropout)(x)
+
+        for hid_layer in self.hid_layers:
+            x = torch.relu(hid_layer(x))
+            x = nn.Dropout(self.dropout)(x)
+
+        q_values = self.output_layer(x)
+
+
+        return q_values
+    
 
 class QNetwork(nn.Module):
 
@@ -51,43 +86,109 @@ class QNetwork(nn.Module):
         super(QNetwork, self).__init__()
         self.n_hid_layers = n_hid_layers
         self.hid_units = hid_units
-
         self.dropout_rate = dropout_rate
-
+        self.target_net = ForwardNetwork(state_size, hid_units, dropout_rate)
         self.input_layer = nn.Linear(state_size, hid_units)
         self.output_layer = nn.Linear(hid_units, action_size)
 
-        self.hid_layers = nn.ModuleList()
-        for i in range(n_hid_layers):
-            self.hid_layers.append(nn.Linear(hid_units, hid_units))
+        self.hid_layers = nn.ModuleList([nn.Linear(hid_units, hid_units) for _ in range(n_hid_layers)])
 
     def forward(self, state):
+        """Forward pass through the network. Returns the predicted Q-values for each possible action."""
+        state = torch.stack(list(state), dim=0).to(torch.float32)
         x = torch.relu(self.input_layer(state))
         x = nn.Dropout(self.dropout_rate)(x)
 
-        for i in range(self.n_hid_layers):
-            x = torch.relu(self.hid_layers[i](x))
+        for hid_layer in self.hid_layers:
+            x = torch.relu(hid_layer(x))
             x = nn.Dropout(self.dropout_rate)(x)
 
         q_values = self.output_layer(x)
+
         return q_values
+    
+    def loss(self, rewards, gamma, next_state, predictQ):
+        """
+        Compute the loss function. 
+        The target for each sample is to choose the action that maximizes (in the future) the expected Q-value. 
+        Parameters:
+        - rewards: (torch.Tensor) The reward of taking an action in a particular state.
+        - gamma:   (float) The discount factor.
+        - next_state: (torch.Tensor) The state we transitioned to from the current state.
+        - predictQ: (torch.Tensor) The Q-values output by the target network.
+        Returns:
+        - loss: (torch.Tensor) The computed loss.
+        """
+        predictQ = self.forward(next_state)
+        with torch.no_grad():
+            maxQ_next = torch.max(predictQ, dim=1)[0] # Get the maximum Q-value from the next states
+        
+        Qtarget = rewards + gamma * maxQ_next # Expected future rewards
+        criterion = nn.MSELoss()
+        loss = criterion(predictQ, Qtarget)
+        
+        return loss
+    
+    
+        
+            
+    def update_target_network(self):
+        self.target_net.load_state_dict(self.state_dict())
+    
+    def update_q_network(self, batch_state, batch_action, batch_reward, batch_next_state, batch_terminated):
+        """
+        Perform a gradient descent step on the Q-Network.
+        Parameters:
+        - batch_state: (torch.Tensor) A tensor containing all of the states in the current batch.
+                       Shape is [batch size, num channels, height, width].
+        - batch_action: (torch.LongTensor) An array where each element is an integer representing which
+                        action was taken in that particular state. Shape is [batch size].
+        - batch_reward: (torch.FloatTensor) An array where each element is a float representing the reward
+                         given after taking the action in the corresponding state. Shape is [batch size].
+        - batch_next_state: (torch.Tensor) A tensor containing all of the next states in the current batch.
+                             Shape is same as `batch_state`.
+        - batch_terminated: (torch.BoolTensor) An array where each element indicates whether or not the episode 
+        """
+        batch_next_q_values = self.target_net(batch_next_state) 
+        batch_q_values = self(batch_state) 
+        batch_next_maxQ = torch.max(batch_next_q_values, dim=1)[0]
+        batch_reward = torch.stack(list(batch_reward), dim=0)
+        # Convertir le tuple de tenseurs en un seul tenseur
+        batch_terminated_tensor = torch.cat(batch_terminated).squeeze()
+        # Extraire les valeurs booléennes du tenseur
+        batch_terminated_bool = batch_terminated_tensor.tolist()
+        
+        if batch_terminated_bool[0] == False:
+            batch_terminated_bool = 0
+        else:
+            batch_terminated_bool = 1
+        batch_q_target = batch_reward + 0.9 * batch_next_maxQ * (1 - batch_terminated_bool)
+        optimizer = optim.Adam(self.parameters(), lr=0.1)
+        loss = F.mse_loss(batch_q_values[range(BATCH_SIZE), batch_action], batch_q_target) 
+        self.zero_grad() 
+        loss.backward() 
+        optimizer.step()
 
     
+
 class Agent():
-    def __init__(self, model, memory, epsilon):
+    def __init__(self, model, memory):
         self.model = model
         self.memory = memory
-        self.epsilon = epsilon 
+        self.epsilon = 2
         self.velocity = 0  # Vitesse initiale de l'agent
         self.acceleration = 0.5  # Accélération/deccélération
-        self.learning_rate_a = 0.01 # alpha or learning rate
         self.discount_factor_g = 0.9 # gamma or discount factor.
         self.state_vector = []
         self.action_space = [0, 1, 2, 3]
         self.action_space_n = len(self.action_space)
+        self.max_score = 2000
 
     
-    def update_velocity(self, action):
+
+    
+    def update_velocity(self, action): 
+        """ Update the velocity of the agent using the given action. """
         # Mise à jour de la vitesse en fonction de l'action
         if action == 0:
             self.velocity = max(self.velocity - self.acceleration, -50)  # Mouvement vers la gauche
@@ -99,28 +200,6 @@ class Agent():
 
         return self.velocity
 
-    def train(self, batch_size):
-        if len(self.memory) < batch_size:
-            return
-        state_batch, action_batch, reward_batch, next_state_batch, terminated_batch = self.memory.sample(batch_size)
-        # Create the optimizer outside the function and reuse it at each iteration
-        optimizer = optim.Adam(self.model.parameters())
-        q_values = self.model(state_batch)
-        next_q_values = self.model(next_state_batch)
-        next_q_values[terminated_batch] = 0.0
-        target_q_values = reward_batch + self.discount_factor_g * torch.max(next_q_values, dim=1)[0]
-        loss = F.mse_loss(q_values[range(batch_size), action_batch], target_q_values)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    
-    
-    @staticmethod
-    def normalize_reward(reward, alpha=0.01, max_reward=100, min_reward=10):
-        """Normalize the reward between 1 and 100"""
-        normalized_reward = ((reward) / (max_reward - (reward * alpha))) / min_reward
-        normalized_reward = int(normalized_reward)
-        return normalized_reward
     
     def compute_state_vector(particles, next_particle, q, MAX_SIZE):
         while True :
@@ -161,3 +240,60 @@ class Agent():
             time.sleep(q)
         
             return np.array(state_vector)
+        
+    
+    def reward(self, particles, score, fusion, game_over, prev_score, i, time_survived, PAD, WIDTH, action, max_score, best_score):
+
+        reward = score / 100
+        # Récompense pour chaque fusion
+        
+        
+        '''
+        # Récompense en fonction de la position des petites particules
+        
+        adjacent_particle = particles[-i - 1] if len(particles) > i else None
+            #distance_to_edge = PAD[1] - state_vector[-3]
+            
+        for adjacent_particle in particles: 
+            if adjacent_particle.radius <= 25 and (adjacent_particle.pos[0] == PAD[0]
+                                                    or adjacent_particle.pos[0] == WIDTH - PAD[0]):
+                reward += 0
+            else:
+                reward -= 0.25
+        
+            if adjacent_particle.radius > 25 and abs(PAD[0] - adjacent_particle.pos[0]) < WIDTH / 4:
+                reward += 0.5
+            else :
+                reward -= 0.5
+        '''
+        # Punir l'inaction
+        #if action == 1:
+            #reward -= 1
+        
+        if score > best_score:
+            reward  += 20   # Reward si le score est meilleur que le précédent
+        
+        if score > 1000:
+            reward += 10
+
+        # Récompense en fonction du temps
+        reward += 0.1 * time_survived
+
+        # Récompense si partie terminée (score maximal atteint)    
+        if score >= max_score:
+            reward += 100
+        
+        # pénalité en cas de game over
+        if game_over == True:  
+            reward -= 10
+            # Récompense en fonction du score
+            if score > prev_score:
+                reward += 10
+            if score <= prev_score:
+                reward += -10
+            
+
+        prev_score = score
+        
+        
+        return reward
