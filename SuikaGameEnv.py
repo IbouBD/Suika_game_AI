@@ -1,3 +1,4 @@
+"""Environment based on github.com/Ole-Batting/suika"""
 from agent import Agent
 from SuikaGame import*
 
