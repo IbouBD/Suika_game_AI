@@ -149,17 +149,13 @@ def resolve_collision(p1, p2, space, particles, mapper):
 
 def save_scores(score):
     try:
-        # Charger les scores existants
         loaded_scores = load_scores()
 
-        # Ajouter le nouveau score
         loaded_scores.append(score)
 
-        # Sauvegarder la liste mise à jour dans le fichier
         with open('scores.json', 'w') as file:
             json.dump(loaded_scores, file)
     except Exception as e:
-        # Gérer les erreurs lors de la sauvegarde
         print(f"Error saving score: {e}")
 
 def load_scores():
@@ -168,24 +164,21 @@ def load_scores():
             scores = json.load(file)
         return scores
     except (FileNotFoundError, json.JSONDecodeError):
-        # Gérer le cas où le fichier n'existe pas ou n'est pas un JSON valide
+        
         return []
 def clear_json_file(filename):
     with open(filename, 'w') as f:
         f.truncate(0)
 def append_to_json_file(filename, new_data):
     try:
-        # Charger le fichier JSON existant
         with open(filename, 'r') as file:
             data = json.load(file)
     except FileNotFoundError:
-        # Si le fichier n'existe pas, créer une liste vide
+        
         data = []
 
-    # Ajouter de nouvelles données à la liste
     data.append(new_data)
 
-    # Écrire la liste mise à jour dans le fichier JSON
     with open(filename, 'w') as file:
         json.dump(data, file)
 
