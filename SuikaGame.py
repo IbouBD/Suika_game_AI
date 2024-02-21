@@ -1,3 +1,4 @@
+"""Environment based on github.com/Ole-Batting/suika"""
 import numpy as np
 import pygame
 import pymunk
