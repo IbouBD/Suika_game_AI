@@ -17,14 +17,11 @@ def env(max_score, max_episode, terminated, epsilon_decay, speed_up):
         
         if terminated == True: break
 
-        # Main game loop
         game_over = False
 
-            # Initialisation du jeu
         pygame.init()
         screen = pygame.display.set_mode((WIDTH, HEIGHT))
 
-        # Initialisation de l'état initial du jeu 
         pygame.display.set_caption("PySuika DQL")
         clock = pygame.time.Clock()
         pygame.font.init()
@@ -97,10 +94,9 @@ def env(max_score, max_episode, terminated, epsilon_decay, speed_up):
             
             velocity = AGENT.update_velocity(action=action)
 
-            # Mise à jour progressive de la position
             next_particle.set_x(next_particle.x + velocity)
 
-            # Restreindre la position dans les limites de l'environnement
+            # Restrict position within environmental limits
             next_particle.set_x(np.clip(next_particle.x, 0, WIDTH - 1))
             if wait_for_next > 1:
                 wait_for_next -= 1
@@ -216,7 +212,7 @@ def env(max_score, max_episode, terminated, epsilon_decay, speed_up):
                 S = F
             else :
                 F = 40
-                S = int(0) # Frame skip for speed up the game
+                S = int(0) # To speed up the game
 
             i +=1
             if episode >= 600 :
