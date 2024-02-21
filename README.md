@@ -13,7 +13,7 @@ Make sure all dependencies are installed.
 ## Installation
 Clone the GitHub repository :
 ```bash
-git clone https://github.com/votre-utilisateur/suika_game_ai.git
+https://github.com/IbouBD/Suika_game_AI.git
 ```
 ## Usage
 Run the train.py script to train the agent :
